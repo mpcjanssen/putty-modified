@@ -5690,6 +5690,53 @@ void term_mouse(Terminal *term, Mouse_Button braw, Mouse_Button bcooked,
     selpoint.x = x;
     unlineptr(ldata);
 
+	// Open url in browser on ctrl+click
+	if(braw == MBT_LEFT && a == MA_CLICK && ctrl){
+		int i = x;		
+		char buf[512],c;
+		int b = -1, e = -1;
+		int uc;
+		
+		while(i >= 0){
+			uc = ldata->chars[i].chr;
+			uc = term->ucsdata->unitab_line[uc & 0xFF];
+			c = (uc & ~CSET_MASK);
+			if(c == ' ' || c == '[' || c == ']' || c == '(' || c == ')'){
+				b = i+1;
+				break;
+			}
+			i--;
+		}
+		if(b == -1)
+			b = 0;
+		i = x;
+		while(i < ldata->size){
+			uc = ldata->chars[i].chr;
+			uc = term->ucsdata->unitab_line[uc & 0xFF];
+			c = (uc & ~CSET_MASK);
+			if(c == ' ' || c == '[' || c == ']' || c == '(' || c == ')'){
+				e = i-1;
+				break;
+			}
+			i++;
+		}
+		if(e == -1)
+			e = ldata->size - 1;
+		if((e-b) > 2){
+			i = 0;
+			for(;b<=e;b++){
+				uc = ldata->chars[b].chr;
+				uc = term->ucsdata->unitab_line[uc & 0xFF];
+				c = (uc & ~CSET_MASK);
+				buf[i] = c;
+				i++;
+			}
+			buf[i] = '\0';
+
+			ShellExecute(NULL, "open", buf, NULL, NULL, SW_SHOWNORMAL);
+		}
+	}
+
     /*
      * If we're in the middle of a selection operation, we ignore raw
      * mouse mode until it's done (we must have been not in raw mouse
@@ -5870,7 +5917,7 @@ void term_mouse(Terminal *term, Mouse_Button braw, Mouse_Button bcooked,
     term_update(term);
 }
 
-int format_arrow_key(char *buf, Terminal *term, int xkey, int ctrl)
+int format_arrow_key(char *buf, Terminal *term, int xkey, int modifier, int alt)
 {
     char *p = buf;
 
@@ -5893,14 +5940,18 @@ int format_arrow_key(char *buf, Terminal *term, int xkey, int ctrl)
 	if (!term->app_keypad_keys)
 	    app_flg = 0;
 #endif
-	/* Useful mapping of Ctrl-arrows */
-	if (ctrl)
-	    app_flg = !app_flg;
-
-	if (app_flg)
-	    p += sprintf((char *) p, "\x1BO%c", xkey);
+	if (modifier == 1 && alt == 1)
+    	p += sprintf((char *) p, "\x1B[1;10%c", xkey); /* Alt-Shift */
+	else if (alt == 1)
+    	p += sprintf((char *) p, "\x1B[1;3%c", xkey); /* Alt */
+	else if (modifier == 1)
+    	p += sprintf((char *) p, "\x1B[1;2%c", xkey); /* Shift */
+	else if (modifier)
+		p += sprintf((char *) p, "\x1B[1;5%c", xkey); /* Control */
+	else if (app_flg)
+		p += sprintf((char *) p, "\x1BO%c", xkey); /* Application mode */
 	else
-	    p += sprintf((char *) p, "\x1B[%c", xkey);
+		p += sprintf((char *) p, "\x1B[%c", xkey); /* Normal */
     }
 
     return p - buf;
@@ -6282,7 +6333,7 @@ void term_key(Terminal *term, Key_Sym keysym, wchar_t *text, size_t tlen,
 	  case PK_REST:  xkey = 'G'; break; /* centre key on number pad */
 	  default: xkey = 0; break; /* else gcc warns `enum value not used' */
 	}
-	p += format_arrow_key(p, term, xkey, modifiers == PKM_CONTROL);
+	p += format_arrow_key(p, term, xkey, modifiers == PKM_CONTROL,0);
 	goto done;
     }
 
